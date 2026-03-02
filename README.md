@@ -68,6 +68,17 @@ Agents in BBBPerm are asked to predict or modify molecular properties related to
 
 ## Citations
 
+
+```bibtex
+@dataset{GRBBBPerm,
+  author    = {General Reasoning Inc. Team},
+  title     = {BBBPerm},
+  year      = {2026},
+  publisher = {OpenReward},
+  url       = {https://openreward.ai/GeneralReasoning/BBBPerm}
+}
+```
+
 ```bibtex
 @article{martins2012bayesian,
   title={A Bayesian approach to in silico blood-brain barrier penetration modeling},
