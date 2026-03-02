@@ -19,7 +19,7 @@ BBBPerm does not require a sandbox. It has minimal compute requirements.
 
 ## License
 
-[MIT](https://opensource.org/license/mit).
+[CC BY 4.0](https://opensource.org/license/mit](https://creativecommons.org/licenses/by/4.0/).
 
 ## Tasks
 
