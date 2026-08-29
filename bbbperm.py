@@ -80,6 +80,11 @@ else:
     print(f"Warning: Oracle model not found at {_oracle_path}")
 
 
+# Reward for a submission made after the task has already been graded. Negative
+# so repeat submissions are actively discouraged, not merely left unscored.
+REPEAT_SUBMISSION_PENALTY = -0.1
+
+
 class BBBPermTaskSpec(BaseModel):
     task_id: str
     task_type: str
@@ -131,6 +136,15 @@ class BBBPerm(Environment):
 
         self.answer = ANSWERS[self.validated.task_id]
 
+        # Graded submissions this session, shared by both submit tools -- a task is
+        # either a classification or a modification, never both, so one episode gets
+        # one graded attempt either way. Only the first is rewarded: the
+        # classification feedback states the true BINARY label on a wrong guess, so
+        # an uncapped tool scored 1.0 on every classification task in two calls
+        # without predicting anything; the modification feedback says exactly why the
+        # oracle rejected a molecule, which is a search oracle over the target label.
+        self.submitted = 0
+
     @classmethod
     def list_splits(cls) -> list[Split]:
         return [
@@ -153,6 +167,16 @@ class BBBPerm(Environment):
     @tool
     async def submit_prediction(self, params: SubmitClassificationInput) -> ToolOutput:
         """Submit your BBB permeability classification (0 = BBB-, 1 = BBB+)."""
+        if self.submitted > 0:
+            return ToolOutput(
+                blocks=[TextBlock(text="A prediction has already been submitted for this task. "
+                                       "This episode is over: it is not re-graded, and repeat "
+                                       "submissions are penalised (reward -0.1).")],
+                metadata={"already_submitted": True, "submission_count": self.submitted},
+                reward=REPEAT_SUBMISSION_PENALTY,
+                finished=True,
+            )
+
         if self.validated.task_type != "classification":
             return ToolOutput(
                 blocks=[TextBlock(text="Error: This task requires molecule modification, not classification. Use submit_modification.")],
@@ -191,6 +215,8 @@ class BBBPerm(Environment):
                 f"Reward: {reward:.1f}"
             )
 
+        self.submitted += 1
+
         return ToolOutput(
             blocks=[TextBlock(text=feedback)],
             metadata={
@@ -207,6 +233,16 @@ class BBBPerm(Environment):
     @tool
     async def submit_modification(self, params: SubmitModificationInput) -> ToolOutput:
         """Submit a modified molecule with changed BBB permeability. The molecule must be valid, structurally similar to the original, and pass oracle verification."""
+        if self.submitted > 0:
+            return ToolOutput(
+                blocks=[TextBlock(text="A modification has already been submitted for this task. "
+                                       "This episode is over: it is not re-graded, and repeat "
+                                       "submissions are penalised (reward -0.1).")],
+                metadata={"already_submitted": True, "submission_count": self.submitted},
+                reward=REPEAT_SUBMISSION_PENALTY,
+                finished=True,
+            )
+
         if self.validated.task_type != "modification":
             return ToolOutput(
                 blocks=[TextBlock(text="Error: This task requires classification, not modification. Use submit_prediction.")],
@@ -222,13 +258,13 @@ class BBBPerm(Environment):
         # Step 1: Parse SMILES
         mol = Chem.MolFromSmiles(submitted)
         if mol is None:
-            return self._mod_failure("Invalid SMILES - could not parse.", submitted)
+            return self._mod_failure("Invalid SMILES - could not parse.", submitted, graded=False)
 
         # Step 2: Sanitize
         try:
             Chem.SanitizeMol(mol)
         except Exception as e:
-            return self._mod_failure(f"SMILES sanitization failed: {e}", submitted)
+            return self._mod_failure(f"SMILES sanitization failed: {e}", submitted, graded=False)
 
         # Step 3: Reject multi-fragment molecules (e.g. salts)
         frags = Chem.GetMolFrags(mol)
@@ -236,6 +272,7 @@ class BBBPerm(Environment):
             return self._mod_failure(
                 "Multi-fragment SMILES are not accepted. Submit a single molecule.",
                 submitted,
+                graded=False,
             )
 
         # Step 4: Not identical to original
@@ -243,7 +280,7 @@ class BBBPerm(Environment):
         original_mol = Chem.MolFromSmiles(original_smiles)
         canonical_original = Chem.MolToSmiles(original_mol, canonical=True)
         if canonical_submitted == canonical_original:
-            return self._mod_failure("Modified molecule is identical to the original.", submitted)
+            return self._mod_failure("Modified molecule is identical to the original.", submitted, graded=False)
 
         # Step 5: Tanimoto similarity check
         fp_orig = AllChem.GetMorganFingerprintAsBitVect(original_mol, radius=FP_RADIUS, nBits=FP_NBITS)
@@ -258,11 +295,11 @@ class BBBPerm(Environment):
 
         # Step 6: Oracle prediction
         if ORACLE_MODEL is None:
-            return self._mod_failure("Oracle model not available.", submitted)
+            return self._mod_failure("Oracle model not available.", submitted, graded=False)
 
         fp_array = _smiles_to_fp_array(canonical_submitted)
         if fp_array is None:
-            return self._mod_failure("Could not compute fingerprint for modified molecule.", submitted)
+            return self._mod_failure("Could not compute fingerprint for modified molecule.", submitted, graded=False)
 
         oracle_pred = int(ORACLE_MODEL.predict(fp_array)[0])
 
@@ -283,6 +320,8 @@ class BBBPerm(Environment):
             f"Tanimoto similarity: {tanimoto:.3f}\n\n"
             f"Reward: 1.0"
         )
+        self.submitted += 1
+
         return ToolOutput(
             blocks=[TextBlock(text=feedback)],
             metadata={
@@ -297,7 +336,11 @@ class BBBPerm(Environment):
             finished=True,
         )
 
-    def _mod_failure(self, reason: str, submitted: str) -> ToolOutput:
+    def _mod_failure(self, reason: str, submitted: str, graded: bool = True) -> ToolOutput:
+        """graded=False for input-validity and infra rejections, which never reached
+        the oracle and so must not consume the episode's one attempt."""
+        if graded:
+            self.submitted += 1
         feedback = (
             f"Modification rejected.\n\n"
             f"Reason: {reason}\n"
