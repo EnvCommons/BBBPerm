@@ -256,9 +256,10 @@ class BBBPerm(Environment):
         original_smiles = self.answer["original_smiles"]
         target_label = self.answer["target_label"]
 
-        # Step 1: Parse SMILES
+        # Step 1: Parse SMILES. An empty string parses to a molecule with no atoms,
+        # which is not a modification either.
         mol = Chem.MolFromSmiles(submitted)
-        if mol is None:
+        if mol is None or mol.GetNumAtoms() == 0:
             return self._mod_failure("Invalid SMILES - could not parse.", submitted, graded=False)
 
         # Step 2: Sanitize

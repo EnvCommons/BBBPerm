@@ -34,7 +34,7 @@ This is a sparse, verifiable reward environment. Each task has one graded submis
 
 - **Classification**: Binary reward. **1.0** for a correct prediction, **0.0** for incorrect.
 - **Modification**: Binary reward. **1.0** if the modified molecule passes all six validation steps. **0.0** otherwise.
-- **Ungraded submissions**: calling the tool for the other task type, a prediction other than 0 or 1, or a modified SMILES that fails to parse or sanitize, has several fragments, or is identical to the original returns **0.0** without grading. The episode stays open so the agent can resubmit.
+- **Ungraded submissions**: calling the tool for the other task type, a prediction other than 0 or 1, or a modified SMILES that is empty, fails to parse or sanitize, has several fragments, or is identical to the original returns **0.0** without grading. The episode stays open so the agent can resubmit.
 
 We do not use LLM graders for this task.
 
