@@ -30,10 +30,11 @@ There are two splits: train (1,000 tasks) and test (100 tasks). Tasks are derive
 
 ## Reward Structure
 
-This is a sparse, verifiable reward environment. Each task requires exactly one tool call.
+This is a sparse, verifiable reward environment. Each task has one graded submission.
 
 - **Classification**: Binary reward. **1.0** for a correct prediction, **0.0** for incorrect.
 - **Modification**: Binary reward. **1.0** if the modified molecule passes all six validation steps. **0.0** otherwise.
+- **Ungraded submissions**: calling the tool for the other task type, a prediction other than 0 or 1, or a modified SMILES that is empty, fails to parse or sanitize, has several fragments, or is identical to the original returns **0.0** without grading. The episode stays open so the agent can resubmit.
 
 We do not use LLM graders for this task.
 
@@ -50,7 +51,7 @@ Agents are given two environment-specific tools (one per task type):
 
 ## Time Horizon
 
-BBBPerm is a single-turn environment. The agent receives a question and submits one answer. Each task requires exactly one tool call.
+BBBPerm is a single-turn environment. The agent receives a question and submits one answer. Each task requires one tool call, plus a resubmission after an ungraded submission.
 
 [Statistics on average tool calls here]
 

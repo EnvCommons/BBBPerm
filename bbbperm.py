@@ -138,11 +138,12 @@ class BBBPerm(Environment):
 
         # Graded submissions this session, shared by both submit tools -- a task is
         # either a classification or a modification, never both, so one episode gets
-        # one graded attempt either way. Only the first is rewarded: the
-        # classification feedback states the true BINARY label on a wrong guess, so
-        # an uncapped tool scored 1.0 on every classification task in two calls
-        # without predicting anything; the modification feedback says exactly why the
-        # oracle rejected a molecule, which is a search oracle over the target label.
+        # one graded attempt either way. Only the first is rewarded: a wrong binary
+        # classification implies the true label, so a second guess would always be
+        # right; the modification feedback says exactly why the oracle rejected a
+        # molecule, which is a search oracle over the target label. Ungraded
+        # submissions (wrong tool, invalid input) are not counted and do not end the
+        # episode.
         self.submitted = 0
 
     @classmethod
@@ -179,19 +180,21 @@ class BBBPerm(Environment):
 
         if self.validated.task_type != "classification":
             return ToolOutput(
-                blocks=[TextBlock(text="Error: This task requires molecule modification, not classification. Use submit_modification.")],
+                blocks=[TextBlock(text="Error: This task requires molecule modification, not classification. "
+                                       "Nothing was graded; use submit_modification.")],
                 metadata={"error": "wrong_tool"},
                 reward=0.0,
-                finished=True,
+                finished=False,
             )
 
         predicted = params.prediction
         if predicted not in (0, 1):
             return ToolOutput(
-                blocks=[TextBlock(text=f"Error: Prediction must be 0 (BBB-) or 1 (BBB+), got {predicted}.")],
+                blocks=[TextBlock(text=f"Error: Prediction must be 0 (BBB-) or 1 (BBB+), got {predicted}. "
+                                       "Nothing was graded; resubmit with 0 or 1.")],
                 metadata={"error": "invalid_prediction", "predicted": predicted},
                 reward=0.0,
-                finished=True,
+                finished=False,
             )
 
         actual = self.answer["value"]
@@ -209,9 +212,7 @@ class BBBPerm(Environment):
             )
         else:
             feedback = (
-                f"Incorrect. You predicted {label_map[predicted]}, "
-                f"but the molecule is {label_map[actual]} "
-                f"(blood-brain barrier {desc_map[actual]}).\n"
+                f"Incorrect. You predicted {label_map[predicted]}.\n"
                 f"Reward: {reward:.1f}"
             )
 
@@ -223,7 +224,6 @@ class BBBPerm(Environment):
                 "task_id": self.validated.task_id,
                 "smiles": self.validated.smiles,
                 "predicted": predicted,
-                "actual": actual,
                 "correct": correct,
             },
             reward=reward,
@@ -245,19 +245,21 @@ class BBBPerm(Environment):
 
         if self.validated.task_type != "modification":
             return ToolOutput(
-                blocks=[TextBlock(text="Error: This task requires classification, not modification. Use submit_prediction.")],
+                blocks=[TextBlock(text="Error: This task requires classification, not modification. "
+                                       "Nothing was graded; use submit_prediction.")],
                 metadata={"error": "wrong_tool"},
                 reward=0.0,
-                finished=True,
+                finished=False,
             )
 
         submitted = params.modified_smiles.strip()
         original_smiles = self.answer["original_smiles"]
         target_label = self.answer["target_label"]
 
-        # Step 1: Parse SMILES
+        # Step 1: Parse SMILES. An empty string parses to a molecule with no atoms,
+        # which is not a modification either.
         mol = Chem.MolFromSmiles(submitted)
-        if mol is None:
+        if mol is None or mol.GetNumAtoms() == 0:
             return self._mod_failure("Invalid SMILES - could not parse.", submitted, graded=False)
 
         # Step 2: Sanitize
@@ -294,8 +296,10 @@ class BBBPerm(Environment):
             )
 
         # Step 6: Oracle prediction
+        # A missing oracle is an infra fault, not a verdict on the molecule: raise so
+        # the call fails without a reward and without ending the episode.
         if ORACLE_MODEL is None:
-            return self._mod_failure("Oracle model not available.", submitted, graded=False)
+            raise RuntimeError("BBB oracle model not loaded")
 
         fp_array = _smiles_to_fp_array(canonical_submitted)
         if fp_array is None:
@@ -337,8 +341,8 @@ class BBBPerm(Environment):
         )
 
     def _mod_failure(self, reason: str, submitted: str, graded: bool = True) -> ToolOutput:
-        """graded=False for input-validity and infra rejections, which never reached
-        the oracle and so must not consume the episode's one attempt."""
+        """graded=False for input-validity rejections, which never reached the
+        oracle and so neither consume the episode's one attempt nor end it."""
         if graded:
             self.submitted += 1
         feedback = (
@@ -347,6 +351,8 @@ class BBBPerm(Environment):
             f"Your submission: {submitted}\n\n"
             f"Reward: 0.0"
         )
+        if not graded:
+            feedback += "\nThis submission was not graded; submit a corrected molecule."
         return ToolOutput(
             blocks=[TextBlock(text=feedback)],
             metadata={
@@ -356,5 +362,5 @@ class BBBPerm(Environment):
                 "reason": reason,
             },
             reward=0.0,
-            finished=True,
+            finished=graded,
         )
