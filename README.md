@@ -1,6 +1,6 @@
 # BBBPerm
 
-[![OpenReward Environment](https://img.shields.io/badge/%E2%AD%90%20OpenReward-Environment-f7e6cc)](https://openreward.ai/GeneralReasoning/BBBPerm)
+[![⭐ OpenReward Environment](https://img.shields.io/badge/%E2%AD%90%20OpenReward-Environment-f7e6cc)](https://openreward.ai/GeneralReasoning/BBBPerm)
 
 ## Description
 
@@ -19,11 +19,11 @@ BBBPerm does not require a sandbox. It has minimal compute requirements.
 
 ## License
 
-[CC BY 4.0](https://opensource.org/license/mit](https://creativecommons.org/licenses/by/4.0/).
+[MIT](https://opensource.org/licenses/MIT). The underlying TDC BBB_Martins dataset is CC BY 4.0.
 
 ## Tasks
 
-There are two splits: train (1,000 tasks) and test (100 tasks). Tasks are derived from the TDC BBB_Martins dataset (~1,975 molecules) and include two task types:
+There are 1,000 tasks in the `train` split and 100 in `test`. Tasks are derived from the TDC BBB_Martins dataset (~1,975 molecules) and include two task types:
 
 - **Classification** (820 train / 80 test): Given a molecule's SMILES string, predict whether it is BBB+ (can cross, label 1) or BBB- (cannot cross, label 0). The dataset is approximately 70% BBB+ / 30% BBB-.
 - **Modification** (180 train / 20 test): Given a BBB-impermeable molecule (BBB-), propose a structurally similar molecule that is BBB-permeable (BBB+). The modified molecule must pass a 6-step validation pipeline: valid SMILES, sanitization, single fragment, not identical to the original, Tanimoto similarity >= 0.3, and oracle model confirmation.
@@ -35,6 +35,7 @@ This is a sparse, verifiable reward environment. Each task has one graded submis
 - **Classification**: Binary reward. **1.0** for a correct prediction, **0.0** for incorrect.
 - **Modification**: Binary reward. **1.0** if the modified molecule passes all six validation steps. **0.0** otherwise.
 - **Ungraded submissions**: calling the tool for the other task type, a prediction other than 0 or 1, or a modified SMILES that is empty, fails to parse or sanitize, has several fragments, or is identical to the original returns **0.0** without grading. The episode stays open so the agent can resubmit.
+- **Repeat submissions**: only the first graded submission is rewarded; any later call returns **-0.1** and is not re-graded.
 
 We do not use LLM graders for this task.
 
@@ -53,22 +54,15 @@ Agents are given two environment-specific tools (one per task type):
 
 BBBPerm is a single-turn environment. The agent receives a question and submits one answer. Each task requires one tool call, plus a resubmission after an ungraded submission.
 
-[Statistics on average tool calls here]
-
-## Environment Difficulty
-
-[Statistics on environment difficulty here]
-
 ## Other Environment Requirements
 
-There are no further environment requirements; BBBPerm works out of the box with the OpenReward endpoint without any secrets.
+There are no further environment requirements; BBBPerm needs no secrets.
 
 ## Safety
 
 Agents in BBBPerm are asked to predict or modify molecular properties related to blood-brain barrier permeability. The environment does not present direct safety risks, as agents only provide predictions or molecular modifications evaluated by an oracle model, with no access to external systems.
 
 ## Citations
-
 
 ```bibtex
 @dataset{GRBBBPerm,
